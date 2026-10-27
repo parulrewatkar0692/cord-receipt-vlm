@@ -48,30 +48,32 @@ greedy decoding, images capped at about 800k pixels) and scores it with
 prints the overlap counts. It needs `pyarrow` and `huggingface_hub` and reads only the label
 column, not the images.
 
-### Results (2026-10-27, Colab T4, float16)
+### Results (2026-10-27, Colab T4)
 
 | Metric | All (n=100) | Without train overlap (n=86) |
 | --- | --- | --- |
-| Valid JSON | 0.830 | 0.826 |
-| **Field F1** (exact) | **0.453** [0.405, 0.498] | 0.443 [0.392, 0.494] |
-| Field F1, lenient (case and spaces) | 0.460 | 0.451 |
-| total_price exact | 0.653 | 0.643 |
-| F1 menu / sub_total / total | 0.455 / 0.425 / 0.464 | 0.441 / 0.422 / 0.460 |
+| Valid JSON | 0.990 | 0.988 |
+| **Field F1** (exact) | **0.483** [0.438, 0.523] | 0.475 [0.430, 0.521] |
+| Field F1, lenient (case and spaces) | 0.492 | 0.485 |
+| total_price exact | 0.745 | 0.726 |
+| F1 menu / sub_total / total | 0.486 / 0.448 / 0.493 | 0.475 / 0.444 / 0.488 |
 
-26.7 seconds per receipt; 100 receipts in 45 minutes.
+84 receipts were answered in float16 and 16 in bfloat16 (see below); 21.6 seconds per receipt on
+average.
 
-**Why it is low** (`python eval/diagnose.py <predictions>`):
-- **All 17 invalid answers are 1,024 characters of `!!!!`.** This is a numeric failure of
-  Qwen2.5-VL in float16 (the T4 has no bfloat16), not a reading error; those receipts score 0.
-  Fix before the next run: bfloat16 or float32 on a newer GPU, or retry the failed receipts in
-  another precision.
-- Writing numbers instead of the printed text (`16500` for `"16,500"`) costs less: 256 of 3,024
-  values. With prices and counts compared as digits only, field F1 is 0.524.
-- On the 83 receipts with a real answer, field F1 is roughly 0.55.
+**float16 failures and the retry.** In the first, float16-only run, 17 answers were 1,024
+characters of `!!!!`: a numeric overflow of Qwen2.5-VL in float16, not a reading error. That run
+scored field F1 0.453 with 83% valid JSON. The notebook now retries such answers in bfloat16
+(emulated on the T4, still about 20 seconds per receipt): all 16 retried receipts gave a real
+answer. The one remaining invalid answer was cut off at the token limit, not garbage.
 
-So the zero-shot 3B model is far below the published fine-tuned results (about 0.84 to 0.96),
-which leaves clear room for fine-tuning to show a gain, and output format (exact printed text)
-is one of the things fine-tuning should teach.
+**What else holds the score down** (`python eval/diagnose.py <predictions>`, first run): writing
+numbers instead of the printed text (`16500` for `"16,500"`) affected 256 of 3,024 values;
+comparing prices and counts as digits only raised field F1 from 0.453 to 0.524.
+
+So the zero-shot 3B model is far below the published fine-tuned results, which leaves clear room
+for fine-tuning to show a gain; copying values exactly as printed is one of the things it should
+teach.
 
 For reference, published fine-tuned results on CORD are roughly 0.84 field F1 for Donut
 (OCR-free) up to about 0.96 for OCR-based models such as LayoutLMv3.
